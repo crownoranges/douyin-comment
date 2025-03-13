@@ -35,31 +35,17 @@ class DouyinVideoSearcher:
     def _initialize_browser(self):
         """初始化浏览器"""
         try:
-            # 设置浏览器选项
-            co = ChromiumOptions()
-            
-            # 根据模式选择是否使用正常/无痕模式
+            # 完全重写浏览器初始化方法
+            # 不使用任何可能不兼容的选项设置
             if self.use_normal_mode:
-                co.set_paths(
-                    local_port=9222,
-                    cache_path=True  # 使用缓存，保留登录状态
-                )
+                # 使用最简单的方式创建浏览器实例
+                # 使用正常模式（有缓存）
+                self.driver = ChromiumPage()
             else:
-                co.set_paths(
-                    local_port=9222,
-                    cache_path=None  # 不使用缓存，相当于无痕模式
-                )
+                # 无痕模式（无缓存）
+                self.driver = ChromiumPage(chromium_options={"headless": False, "incognito": True})
             
-            # 创建浏览器实例
-            self.driver = ChromiumPage(co)
-            
-            # 在创建浏览器实例后设置窗口大小
-            try:
-                # 正确的API是driver.window.set_size
-                self.driver.window.set_size(1280, 800)
-            except Exception as e:
-                # 如果设置窗口大小失败，记录错误但继续执行
-                print(f"注意: 设置浏览器窗口大小失败，将使用默认大小。错误信息: {str(e)}")
+            # 注意：这里不设置窗口大小，使用浏览器默认窗口大小
             
             print("浏览器初始化成功")
             return True
@@ -82,51 +68,42 @@ class DouyinVideoSearcher:
         # 创建检测登录状态的线程
         login_detected = False
         
-        # 检测登录状态的函数
+        # 检测登录状态的函数 - 使用简化的检测方法
         def check_login_status():
             nonlocal login_detected
             while time.time() - start_time < max_wait_time and not login_detected:
                 try:
-                    # 使用多种方式检查是否已登录
-                    # 1. 检查头像元素
+                    # 检测用户头像元素 - 使用最基本的方法
                     try:
-                        avatar_elements = self.driver.find_elements('xpath://div[contains(@class, "avatar")]')
-                        for avatar in avatar_elements:
-                            if avatar.is_displayed():
-                                login_detected = True
-                                break
+                        elems = self.driver.find_elements(xpath="//div[contains(@class, 'avatar')]")
+                        if any(elem for elem in elems if elem.is_displayed()):
+                            login_detected = True
+                            break
                     except:
                         pass
                         
-                    # 2. 检查用户名元素
-                    if not login_detected:
-                        try:
-                            user_elements = self.driver.find_elements('xpath://p[contains(@class, "nickname") or contains(@class, "username")]')
-                            for user_elem in user_elements:
-                                if user_elem.is_displayed() and user_elem.text.strip():
-                                    login_detected = True
-                                    break
-                        except:
-                            pass
-                    
-                    # 3. 检查登录后特有的元素
-                    if not login_detected:
-                        try:
-                            # 检查是否有消息图标等登录后才有的元素
-                            logged_elements = self.driver.find_elements('xpath://div[contains(@class, "message") or contains(@class, "notification")]')
-                            if logged_elements:
-                                login_detected = True
-                        except:
-                            pass
-                except Exception as e:
-                    print(f"检测登录状态时出错: {str(e)}")
+                    # 简单检查页面标题或URL变化
+                    try:
+                        if "我的主页" in self.driver.title or "我的" in self.driver.title:
+                            login_detected = True
+                            break
+                    except:
+                        pass
+                        
+                except:
+                    # 忽略所有错误，继续检测
+                    pass
                     
                 time.sleep(2)  # 每2秒检查一次
         
-        # 启动检测线程
+        # 导入必要的模块
         import threading
-        import msvcrt
+        try:
+            import msvcrt  # Windows
+        except ImportError:
+            msvcrt = None  # 非Windows系统
         
+        # 启动检测线程
         login_thread = threading.Thread(target=check_login_status)
         login_thread.daemon = True
         login_thread.start()
@@ -134,11 +111,17 @@ class DouyinVideoSearcher:
         # 主线程等待用户按Enter或登录完成
         print("等待登录中...(按Enter跳过)")
         while time.time() - start_time < max_wait_time and not login_detected:
-            if msvcrt.kbhit():
-                key = msvcrt.getch()
-                if key == b'\r':  # Enter键
-                    print("用户手动跳过等待")
-                    break
+            if msvcrt:  # 仅在Windows上支持
+                if msvcrt.kbhit():
+                    key = msvcrt.getch()
+                    if key == b'\r':  # Enter键
+                        print("用户手动跳过等待")
+                        break
+            else:
+                # 非Windows系统等待5秒
+                time.sleep(5)
+                break
+                
             time.sleep(0.5)
             
         if login_detected:
@@ -166,7 +149,13 @@ class DouyinVideoSearcher:
                 
         try:
             # 编码关键词，构建搜索URL
-            encoded_keyword = quote(keyword)
+            try:
+                from urllib.parse import quote
+                encoded_keyword = quote(keyword)
+            except:
+                # 简单替换一些基本字符
+                encoded_keyword = keyword.replace(' ', '%20')
+                
             search_url = f"https://www.douyin.com/search/{encoded_keyword}?aid=0&source=normal_search&type=video"
             
             print(f"正在搜索: {keyword}")
@@ -201,48 +190,27 @@ class DouyinVideoSearcher:
         """滚动加载更多搜索结果"""
         print("加载更多搜索结果...")
         scroll_count = 0
-        max_scrolls = (max_videos // 5) + 2  # 每次滚动大约加载5个视频，多滚动几次确保加载足够的视频
+        max_scrolls = (max_videos // 3) + 3  # 增加滚动次数，确保加载足够的视频
         
         for _ in range(max_scrolls):
             try:
-                # 使用更兼容的滚动方式
-                try:
-                    # 尝试使用window.scroll方法
-                    self.driver.execute_script(f"window.scrollBy(0, 800);")
-                except:
-                    # 备用滚动方式
-                    try:
-                        self.driver.scroll.down(800)
-                    except:
-                        # 最后的备用方式
-                        self.driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
+                # 使用纯JavaScript滚动，最大兼容性
+                js_scroll = "window.scrollBy(0, 800);"
+                self.driver.run_js(js_scroll)  # 尝试使用run_js
                 
                 scroll_count += 1
                 
-                # 随机等待一段时间，模拟人类行为
-                wait_time = random.uniform(0.8, 1.5)
-                time.sleep(wait_time)
+                # 等待加载
+                time.sleep(1.5)
                 
-                # 检查是否已经加载了足够的视频 - 使用更通用的选择器
-                try:
-                    # 尝试查找视频元素
-                    video_elements = self.driver.find_elements('xpath://a[contains(@href, "/video/")]')
-                    if len(video_elements) >= max_videos:
-                        print(f"已加载 {len(video_elements)} 个视频结果")
-                        break
-                except:
-                    # 使用备用选择器
-                    try:
-                        video_elements = self.driver.find_elements('tag:a', 'contains(@href, "/video/")')
-                        if len(video_elements) >= max_videos:
-                            print(f"已加载 {len(video_elements)} 个视频结果")
-                            break
-                    except:
-                        pass
-                    
             except Exception as e:
                 print(f"滚动加载时出错: {str(e)}")
-                time.sleep(1)  # 出错时多等待一下
+                try:
+                    # 备用JavaScript滚动方式
+                    self.driver.execute_script("window.scrollBy(0, 800);")
+                    time.sleep(1)
+                except:
+                    pass
         
         print(f"完成滚动 {scroll_count} 次")
         
@@ -251,28 +219,54 @@ class DouyinVideoSearcher:
         results = []
         
         try:
-            # 查找视频容器 - 更新XPath选择器，使其更通用
-            video_containers = self.driver.find_elements('xpath://li[contains(@class, "search-result") or contains(@class, "video-card")]')
-            
+            # 使用最基本的XPath方式查找视频容器
+            try:
+                # 方法1：根据类名查找
+                video_containers = self.driver.find_elements(xpath='//li[contains(@class, "search-result") or contains(@class, "video-card")]')
+            except:
+                try:
+                    # 方法2：直接查找视频链接
+                    video_containers = self.driver.find_elements(xpath='//a[contains(@href, "/video/")]')
+                except:
+                    # 兜底方法：尝试各种可能的选择器
+                    video_containers = self.driver.find_elements(tag='li')
+                
             if not video_containers:
-                # 如果找不到视频容器，尝试更通用的选择器
-                video_containers = self.driver.find_elements('tag:a', 'contains(@href, "/video/")')
+                print("未找到任何视频结果")
+                return []
                 
             print(f"找到 {len(video_containers)} 个视频结果")
             
             # 提取每个视频的信息
             for i, container in enumerate(video_containers[:max_videos]):
                 try:
-                    # 视频链接和ID - 使用更灵活的方式查找
+                    # 视频链接和ID - 使用基本API
                     video_url = None
                     try:
-                        # 尝试查找链接元素
-                        video_link_elem = container.find_element('tag:a', 'contains(@href, "/video/")')
-                        video_url = video_link_elem.get_attribute('href')
+                        # 尝试在容器内查找链接
+                        try:
+                            video_link_elem = container.find_element(xpath='.//a[contains(@href, "/video/")]')
+                            video_url = video_link_elem.attr('href')  # 尝试使用attr属性
+                        except:
+                            try:
+                                # 备用方法：使用get_attribute
+                                video_url = video_link_elem.get_attribute('href')
+                            except:
+                                pass
                     except:
-                        # 如果容器本身就是链接元素
-                        if 'href' in container.attrs and '/video/' in container.attrs['href']:
-                            video_url = container.attrs['href']
+                        # 如果容器本身是链接
+                        try:
+                            if 'href' in container.attrs and '/video/' in container.attrs['href']:
+                                video_url = container.attrs['href']
+                        except:
+                            # 最后尝试直接获取href属性
+                            try:
+                                video_url = container.attr('href')
+                            except:
+                                try:
+                                    video_url = container.get_attribute('href')
+                                except:
+                                    pass
                     
                     # 如果仍然找不到链接，跳过此视频
                     if not video_url:
@@ -280,54 +274,59 @@ class DouyinVideoSearcher:
                         
                     video_id = self._extract_video_id(video_url)
                     
-                    # 视频标题 - 使用更灵活的选择器
+                    # 视频标题 - 使用基本API
                     title = "未知标题"
                     try:
-                        # 尝试多种方式查找标题
-                        title_elem = container.find_element('xpath:.//p[contains(@class, "title")]')
-                        title = title_elem.text.strip()
-                    except:
+                        # 尝试多种元素定位方式
                         try:
-                            # 尝试其他常见的标题元素
-                            title_elem = container.find_element('xpath:.//div[contains(@class, "title") or contains(@class, "desc")]')
-                            title = title_elem.text.strip()
-                        except:
-                            # 尝试查找任何看起来像标题的文本
-                            title_elems = container.find_elements('tag:p')
-                            if title_elems:
-                                title = title_elems[0].text.strip()
-                    
-                    # 作者信息 - 同样使用灵活的选择器
-                    author = "未知作者"
-                    try:
-                        author_elem = container.find_element('xpath:.//p[contains(@class, "author")]')
-                        author = author_elem.text.strip()
-                    except:
-                        try:
-                            author_elem = container.find_element('xpath:.//div[contains(@class, "author") or contains(@class, "user")]')
-                            author = author_elem.text.strip()
+                            title_elem = container.find_element(xpath='.//p[contains(@class, "title")]')
+                            title = title_elem.text
                         except:
                             pass
-                    
-                    # 统计信息比较难准确获取，使用默认值
-                    likes = "未知"
-                    comments = "未知"
-                    
-                    # 尝试获取统计信息
-                    try:
-                        stats_elems = container.find_elements('xpath:.//span[contains(@class, "count")]')
-                        if len(stats_elems) > 0:
-                            likes = stats_elems[0].text.strip()
-                        if len(stats_elems) > 1:
-                            comments = stats_elems[1].text.strip()
+                            
+                        if not title or title == "未知标题":
+                            # 尝试其他标题元素
+                            try:
+                                title_elem = container.find_element(xpath='.//div[contains(@class, "title")]')
+                                title = title_elem.text
+                            except:
+                                pass
+                                
+                        if not title or title == "未知标题":
+                            # 尝试查找任何文本段落
+                            try:
+                                title_elems = container.find_elements(tag='p')
+                                if title_elems:
+                                    title = title_elems[0].text
+                            except:
+                                pass
                     except:
                         pass
                     
+                    # 作者信息 - 同样使用基本API
+                    author = "未知作者"
+                    try:
+                        try:
+                            author_elem = container.find_element(xpath='.//p[contains(@class, "author")]')
+                            author = author_elem.text
+                        except:
+                            try:
+                                author_elem = container.find_element(xpath='.//div[contains(@class, "author")]')
+                                author = author_elem.text
+                            except:
+                                pass
+                    except:
+                        pass
+                    
+                    # 统计信息
+                    likes = "未知"
+                    comments = "未知"
+                    
                     results.append({
-                        'title': title,
+                        'title': title.strip() if title else "未知标题",
                         'url': video_url,
                         'video_id': video_id,
-                        'author': author,
+                        'author': author.strip() if author else "未知作者",
                         'likes': likes,
                         'comments': comments
                     })
@@ -335,7 +334,7 @@ class DouyinVideoSearcher:
                 except Exception as e:
                     print(f"提取第 {i+1} 个视频信息时出错: {str(e)}")
                     continue
-        
+                    
         except Exception as e:
             print(f"提取视频信息出错: {str(e)}")
             
@@ -372,16 +371,33 @@ class DouyinVideoSearcher:
         print("=" * 80)
         
         for i, video in enumerate(self.search_results):
-            print(f"\n[{i+1}] {video['title']}")
-            print(f"   作者: {video['author']}")
-            print(f"   点赞: {video['likes']} | 评论: {video['comments']}")
-            print(f"   链接: {video['url']}")
+            # 安全获取视频信息
+            title = video.get('title', '未知标题')
+            author = video.get('author', '未知作者')
+            likes = video.get('likes', '未知')
+            comments = video.get('comments', '未知')
+            video_url = video.get('url', '')
+            
+            print(f"\n[{i+1}] {title}")
+            print(f"   作者: {author}")
+            print(f"   点赞: {likes} | 评论: {comments}")
+            print(f"   链接: {video_url}")
             print("-" * 80)
             
     def select_video(self):
         """让用户选择一个视频"""
         if not self.search_results:
+            print("没有可选择的视频")
             return None
+            
+        # 安全处理，确保至少有一个有效结果
+        valid_results = [v for v in self.search_results if 'url' in v and v['url']]
+        if not valid_results:
+            print("没有找到有效的视频链接")
+            return None
+        
+        # 将有效结果更新回搜索结果
+        self.search_results = valid_results
             
         while True:
             try:
@@ -393,12 +409,15 @@ class DouyinVideoSearcher:
                 index = int(choice) - 1
                 if 0 <= index < len(self.search_results):
                     selected_video = self.search_results[index]
-                    print(f"\n已选择: {selected_video['title']}")
+                    print(f"\n已选择: {selected_video.get('title', '未知视频')}")
                     return selected_video
                 else:
                     print(f"无效的选择，请输入 1-{len(self.search_results)} 之间的数字")
             except ValueError:
                 print("请输入有效的数字")
+            except Exception as e:
+                print(f"选择视频时发生错误: {str(e)}")
+                return None
                 
     def close(self):
         """关闭浏览器"""
