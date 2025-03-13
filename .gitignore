@@ -1,0 +1,60 @@
+# Python 临时文件
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# 虚拟环境
+venv/
+ENV/
+.env
+
+# IDE相关文件
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# 日志文件
+logs/
+*.log
+
+# 系统文件
+.DS_Store
+Thumbs.db
+
+# 配置文件中可能包含的敏感信息
+config.ini
+secrets.json
+
+# 缓存目录
+.pytest_cache/
+.coverage
+htmlcov/
+
+# 可能的大数据文件
+# *.csv  # 注释掉，保留CSV数据文件
+*.xlsx
+*.db
+*.sqlite3
+
+# 但保留项目必要的样例数据文件和爬取的评论数据
+!example_data/*.csv
+!crawled_comments/*.csv
+!analysis_results/*.csv 

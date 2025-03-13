@@ -1,0 +1,10 @@
+DrissionPage>=4.0.0
+pandas>=1.0.0
+numpy>=1.18.0
+jieba>=0.42.1
+Pillow>=8.0.0
+wordcloud>=1.8.0
+matplotlib>=3.3.0
+pyecharts>=1.9.0
+scikit-learn>=0.24.0
+networkx>=2.5.0 
