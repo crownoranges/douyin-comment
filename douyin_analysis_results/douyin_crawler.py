@@ -96,155 +96,198 @@ class DouyinCommentCrawler:
     def _scroll_to_comments(self):
         """滚动到评论区域"""
         try:
-            # 尝试找到评论区域
-            comment_area = self.driver.find_element('xpath://div[contains(@class, "comment-mainContent") or contains(@class, "comment-list")]')
-            if comment_area:
-                self.driver.scroll.to_element(comment_area, center=True)
-                time.sleep(1)
-        except:
-            # 如果找不到评论区，就滚动到页面中部
-            self.driver.scroll.to_half()
+            # 使用纯JavaScript滚动到页面中间，这里是评论区域通常所在的位置
+            self.driver.run_js("window.scrollTo(0, document.body.scrollHeight/2);")
             time.sleep(1)
+            
+            # 尝试找到评论区域的元素（如果存在）
+            try:
+                # 查找评论区域
+                comment_area = self.driver.find_element(xpath='//div[contains(@class, "comment-mainContent") or contains(@class, "comment-list")]')
+                if comment_area:
+                    # 使用JavaScript滚动到评论区
+                    self.driver.run_js("arguments[0].scrollIntoView();", comment_area)
+                    time.sleep(1)
+            except Exception as e:
+                # 如果找不到评论区，使用备用滚动方法
+                print(f"找不到评论区域，使用备用滚动方法: {str(e)}")
+                # 滚动一点以激活更多内容加载
+                self.driver.run_js("window.scrollBy(0, 400);")
+        except Exception as e:
+            print(f"滚动到评论区时出错: {str(e)}")
+            # 最基本的滚动方法
+            try:
+                self.driver.run_js("window.scrollBy(0, 500);")
+            except:
+                pass
     
     def _try_load_more_comments(self):
         """尝试不同方法加载更多评论"""
         # 尝试点击"展开更多回复"按钮
         try:
-            more_reply_btns = self.driver.find_elements('xpath://span[contains(text(), "查看") and contains(text(), "回复")]')
+            more_reply_btns = self.driver.find_elements(xpath='//span[contains(text(), "查看") and contains(text(), "回复")]')
             if more_reply_btns:
                 for btn in more_reply_btns[:5]:  # 最多点击前5个
                     try:
-                        self.driver.scroll.to_element(btn)
+                        # 使用JavaScript滚动到按钮
+                        self.driver.run_js("arguments[0].scrollIntoView();", btn)
                         time.sleep(0.5)
-                        btn.click()
+                        # 尝试使用JavaScript点击
+                        try:
+                            self.driver.run_js("arguments[0].click();", btn)
+                        except:
+                            # 备用：常规点击
+                            btn.click()
                         time.sleep(1)
                         return True
-                    except:
-                        pass
-        except:
-            pass
+                    except Exception as e:
+                        print(f"点击'查看回复'按钮失败: {str(e)}")
+                        continue
+        except Exception as e:
+            print(f"查找'查看回复'按钮失败: {str(e)}")
         
         # 尝试点击"展开"按钮
         try:
-            expand_btns = self.driver.find_elements('xpath://span[contains(text(), "展开") or contains(text(), "更多")]')
+            expand_btns = self.driver.find_elements(xpath='//span[contains(text(), "展开") or contains(text(), "更多")]')
             if expand_btns:
                 for btn in expand_btns[:3]:  # 最多点击前3个
                     try:
-                        self.driver.scroll.to_element(btn)
+                        # 使用JavaScript滚动到按钮
+                        self.driver.run_js("arguments[0].scrollIntoView();", btn)
                         time.sleep(0.5)
-                        btn.click()
+                        # 尝试使用JavaScript点击
+                        try:
+                            self.driver.run_js("arguments[0].click();", btn)
+                        except:
+                            # 备用：常规点击
+                            btn.click()
                         time.sleep(1)
                         return True
-                    except:
-                        pass
-        except:
-            pass
+                    except Exception as e:
+                        print(f"点击'展开'按钮失败: {str(e)}")
+                        continue
+        except Exception as e:
+            print(f"查找'展开'按钮失败: {str(e)}")
             
         return False
     
     def _perform_scroll(self, method):
         """执行不同的滚动方法
         
-        增强版滚动策略，支持多种不同的滚动模式，以适应不同页面结构和加载机制
+        使用纯JavaScript实现滚动，确保最大兼容性
+        不依赖DrissionPage的滚动API，避免版本兼容问题
         """
         print(f"使用滚动策略 {method}")
         try:
+            # 所有策略都使用纯JavaScript实现，避免使用DrissionPage的滚动API
             if method == 1:
-                # 平滑滚动到底部
-                self.driver.scroll.to_bottom(smooth=True)
+                # 滚动到底部
+                self.driver.run_js("window.scrollTo(0, document.body.scrollHeight);")
                 time.sleep(0.5)
             elif method == 2:
                 # 先向下滚动一部分，再滚动到底部
-                self.driver.scroll.down(300)
+                self.driver.run_js("window.scrollBy(0, 300);")
                 time.sleep(0.5)
-                self.driver.scroll.to_bottom()
+                self.driver.run_js("window.scrollTo(0, document.body.scrollHeight);")
             elif method == 3:
                 # 先向上滚动，再向下滚动（有时可以触发加载）
-                self.driver.scroll.up(200)
+                self.driver.run_js("window.scrollBy(0, -200);")
                 time.sleep(0.5)
-                self.driver.scroll.to_bottom()
+                self.driver.run_js("window.scrollTo(0, document.body.scrollHeight);")
             elif method == 4:
-                # 滚动到评论区，再滚动到底部
-                self._scroll_to_comments()
+                # 滚动到中部，再滚动到底部
+                self.driver.run_js("window.scrollTo(0, document.body.scrollHeight/2);")
                 time.sleep(0.5)
-                self.driver.scroll.to_bottom()
+                self.driver.run_js("window.scrollTo(0, document.body.scrollHeight);")
             elif method == 5:
                 # 快速滚动到底部，然后慢慢向上滚动
-                self.driver.scroll.to_bottom()
+                self.driver.run_js("window.scrollTo(0, document.body.scrollHeight);")
                 time.sleep(0.5)
                 for _ in range(3):
-                    self.driver.scroll.up(100)
+                    self.driver.run_js("window.scrollBy(0, -100);")
                     time.sleep(0.3)
             elif method == 6:
-                # 【新增】渐进滚动策略：多次小幅度滚动
-                height = self.driver.get_window_size()['height']
+                # 渐进滚动策略：多次小幅度滚动
                 for i in range(5):
-                    scroll_distance = int(height * 0.3)  # 滚动页面高度的30%
-                    self.driver.scroll.down(scroll_distance)
-                    time.sleep(0.4)  # 小间隔等待
+                    self.driver.run_js("window.scrollBy(0, 300);")
+                    time.sleep(0.4)
             elif method == 7:
-                # 【新增】波浪式滚动：先下滚再小幅上滚
+                # 波浪式滚动：先下滚再小幅上滚
                 for i in range(3):
-                    self.driver.scroll.down(300)
+                    self.driver.run_js("window.scrollBy(0, 300);")
                     time.sleep(0.3)
-                    self.driver.scroll.up(50)  # 小幅上滚触发可能的加载逻辑
+                    self.driver.run_js("window.scrollBy(0, -50);")
                     time.sleep(0.3)
-                self.driver.scroll.to_bottom()
+                self.driver.run_js("window.scrollTo(0, document.body.scrollHeight);")
             elif method == 8:
-                # 【新增】寻找加载更多按钮并点击
+                # 寻找加载更多按钮并点击
                 try:
                     # 尝试找到"加载更多"类型的按钮
-                    load_more_btns = self.driver.find_elements('xpath://div[contains(text(), "加载") or contains(text(), "更多") or contains(text(), "展开")]')
+                    load_more_btns = self.driver.find_elements(xpath='//div[contains(text(), "加载") or contains(text(), "更多") or contains(text(), "展开")]')
                     if load_more_btns:
                         for btn in load_more_btns[:3]:
                             try:
-                                self.driver.scroll.to_element(btn, center=True)
+                                # 尝试滚动到按钮然后点击
+                                try:
+                                    # 使用纯JavaScript滚动
+                                    self.driver.run_js("arguments[0].scrollIntoView();", btn)
+                                except:
+                                    pass
                                 time.sleep(0.5)
-                                btn.click()
+                                try:
+                                    # 尝试使用JavaScript点击
+                                    self.driver.run_js("arguments[0].click();", btn)
+                                except:
+                                    # 备用：常规点击
+                                    btn.click()
                                 print("找到并点击了'加载更多'按钮")
-                                time.sleep(1.5)  # 等待内容加载
+                                time.sleep(1.5)
                                 return
                             except:
                                 pass
-                except:
-                    pass
+                except Exception as e:
+                    print(f"寻找加载更多按钮时出错: {str(e)}")
+                
                 # 如果没找到按钮，回退到常规滚动
-                self.driver.scroll.to_bottom(smooth=True)
+                self.driver.run_js("window.scrollTo(0, document.body.scrollHeight);")
             elif method == 9:
-                # 【新增】根据评论元素精确定位滚动策略
+                # 根据评论元素精确定位滚动策略
                 try:
                     # 查找所有评论元素
-                    comments = self.driver.find_elements('xpath://div[contains(@class, "comment-item") or contains(@class, "CommentItem")]')
+                    comments = self.driver.find_elements(xpath='//div[contains(@class, "comment-item") or contains(@class, "CommentItem")]')
                     if comments and len(comments) > 2:
                         # 滚动到倒数第二个评论处
                         target = comments[-2]
-                        self.driver.scroll.to_element(target, center=True)
+                        # 使用纯JavaScript滚动
+                        self.driver.run_js("arguments[0].scrollIntoView();", target)
                         time.sleep(0.5)
                         # 再滑动一点点继续加载
-                        self.driver.scroll.down(200)
+                        self.driver.run_js("window.scrollBy(0, 200);")
                         return
-                except:
-                    pass
+                except Exception as e:
+                    print(f"基于评论元素滚动时出错: {str(e)}")
+                
                 # 回退到常规滚动
-                self.driver.scroll.to_bottom()
+                self.driver.run_js("window.scrollTo(0, document.body.scrollHeight);")
             elif method == 10:
-                # 【新增】JavaScript滚动，有时候比Python的滚动方法更稳定
+                # JavaScript振动滚动
                 # 使用JS滚动到底部
-                self.driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
+                self.driver.run_js("window.scrollTo(0, document.body.scrollHeight);")
                 time.sleep(0.8)
                 # 再执行一个小振动，可能触发加载
-                self.driver.execute_script("window.scrollTo(0, document.body.scrollHeight - 100);")
+                self.driver.run_js("window.scrollTo(0, document.body.scrollHeight - 100);")
                 time.sleep(0.3)
-                self.driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
+                self.driver.run_js("window.scrollTo(0, document.body.scrollHeight);")
             else:
-                # 默认方法：平滑滚动到底部
-                self.driver.scroll.to_bottom(smooth=True)
+                # 默认方法：滚动到底部
+                self.driver.run_js("window.scrollTo(0, document.body.scrollHeight);")
         except Exception as e:
             print(f"执行滚动策略 {method} 时出错: {str(e)}")
             # 出错时使用最基本的滚动方法
             try:
-                self.driver.scroll.down(300)
-            except:
+                self.driver.run_js("window.scrollBy(0, 300);")
+            except Exception as e2:
+                print(f"备用滚动也失败: {str(e2)}")
                 pass
     
     def start_crawler(self):
@@ -265,19 +308,27 @@ class DouyinCommentCrawler:
         try:
             # 初始化浏览器
             print("正在初始化浏览器...")
-            if self.use_normal_mode:
-                # 修改为使用新版API
-                # 创建浏览器配置对象
-                co = ChromiumOptions()
-                # 设置为非无痕模式
-                co.set_argument('--disable-incognito', True)
-                # 创建带有自定义选项的浏览器
-                self.driver = ChromiumPage(co)
-                print("已启用正常浏览模式，您可以登录账号查看评论")
-            else:
-                # 使用默认配置(无痕模式)
+            try:
+                # 使用最简单的方式初始化浏览器，避免使用可能不兼容的API
+                if self.use_normal_mode:
+                    # 正常模式（带缓存）
+                    self.driver = ChromiumPage()
+                    print("已启用正常浏览模式，您可以登录账号查看评论")
+                else:
+                    # 无痕模式
+                    try:
+                        # 尝试使用无痕模式参数
+                        self.driver = ChromiumPage(chromium_options={"headless": False, "incognito": True})
+                    except:
+                        # 如果失败，回退到默认模式
+                        print("无法使用无痕模式，回退到默认模式")
+                        self.driver = ChromiumPage()
+                    print("使用无痕模式")
+            except Exception as e:
+                print(f"初始化浏览器失败，尝试使用备用方法: {e}")
+                # 备用创建方法，不使用任何选项
                 self.driver = ChromiumPage()
-                print("使用默认无痕模式")
+                print("使用默认浏览器模式")
             
             # 如果需要先登录
             if self.login_first:
