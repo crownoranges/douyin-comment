@@ -3,12 +3,13 @@
 
 功能:
 1. 爬取抖音视频评论
-2. 分析评论数据并生成可视化图表1
+2. 分析评论数据并生成可视化图表
 3. 支持爬取全部评论，不受限于页数
-4. 按日期时间保存数据，便于历史追踪
+4. 支持通过关键词搜索视频并爬取评论
+5. 按日期时间保存数据，便于历史追踪
 
 日期: 2025年3月12日
-版本: 3.0
+版本: 3.1
 作者: TO：梁
 """
 
@@ -20,6 +21,7 @@ import time
 try:
     from douyin_crawler import DouyinCommentCrawler
     from douyin_analyzer import CommentAnalyzer
+    from douyin_search import DouyinVideoSearcher
 except ImportError:
     print("正在导入模块...")
     # 尝试相对导入
@@ -31,18 +33,19 @@ except ImportError:
         
         from douyin_crawler import DouyinCommentCrawler
         from douyin_analyzer import CommentAnalyzer
+        from douyin_search import DouyinVideoSearcher
     except ImportError:
-        print("无法导入必要模块。请确保 douyin_crawler.py 和 douyin_analyzer.py 文件位于同一目录下。")
+        print("无法导入必要模块。请确保相关模块文件位于同一目录下。")
         sys.exit(1)
 
 
 def show_banner():
     """显示欢迎横幅"""
     print("\n" + "=" * 80)
-    print("抖音评论爬取与分析工具 V3.0".center(78))
+    print("抖音评论爬取与分析工具 V3.1".center(78))
     print("=" * 80)
     print("  功能：爬取抖音视频评论数据并生成多维度分析图表")
-    print("  特点：支持爬取全部评论 | 自动保存历史数据 | 多维度数据可视化")
+    print("  特点：支持爬取全部评论 | 自动保存历史数据 | 多维度数据可视化 | 关键词搜索视频")
     print("  作者：TO：梁")
     print("=" * 80 + "\n")
 
@@ -60,8 +63,9 @@ def show_menu():
     print("1. 爬取新的评论并分析")
     print("2. 分析已有的评论数据")
     print("3. 同时执行爬取和分析")
+    print("4. 通过关键词搜索视频并爬取评论")
     print("0. 退出程序")
-    return input("\n请选择操作 [0-3]: ")
+    return input("\n请选择操作 [0-4]: ")
 
 
 def crawl_comments():
@@ -160,6 +164,108 @@ def analyze_comments(csv_file=None):
         print(f"分析过程中出错: {str(e)}")
 
 
+def search_and_crawl_comments():
+    """通过关键词搜索视频并爬取评论功能"""
+    print_section("视频搜索与评论爬取")
+    
+    # 获取搜索关键词
+    keyword = input("请输入要搜索的关键词: ")
+    if not keyword:
+        print("错误: 关键词不能为空!")
+        return None
+    
+    # 设置搜索结果数量
+    try:
+        result_count_input = input("请输入要显示的最大搜索结果数量 (直接回车默认为10): ")
+        max_results = int(result_count_input) if result_count_input.strip() else 10
+    except ValueError:
+        max_results = 10
+    
+    # 询问是否使用正常模式
+    use_normal_mode = input("是否使用正常浏览器模式 (可以登录账号) [Y/n]: ").lower() != 'n'
+    
+    # 如果使用正常模式，询问是否需要先登录
+    login_first = False
+    if use_normal_mode:
+        login_first = input("是否需要在搜索前先登录抖音账号 [y/N]: ").lower() == 'y'
+    
+    # 创建搜索器实例
+    print("\n正在初始化搜索器...")
+    searcher = DouyinVideoSearcher(
+        use_normal_mode=use_normal_mode,
+        login_first=login_first
+    )
+    
+    # 执行搜索
+    print(f"\n开始搜索关键词: \"{keyword}\"，请稍候...\n")
+    start_time = time.time()
+    search_results = searcher.search_videos(keyword, max_results)
+    end_time = time.time()
+    
+    # 处理搜索结果
+    if not search_results:
+        print("\n未找到相关视频或搜索失败")
+        if searcher.driver:
+            searcher.close()
+        return None
+    
+    print(f"\n成功找到 {len(search_results)} 个相关视频，耗时 {end_time - start_time:.2f} 秒")
+    
+    # 显示搜索结果
+    searcher.display_search_results()
+    
+    # 用户选择视频
+    selected_video = searcher.select_video()
+    if not selected_video:
+        print("\n未选择任何视频，操作取消")
+        if searcher.driver:
+            searcher.close()
+        return None
+    
+    # 获取选定视频的URL
+    video_url = selected_video['url']
+    
+    # 设置最大爬取页数
+    try:
+        pages_input = input("\n请输入最大爬取页数 (直接回车表示爬取全部评论): ")
+        max_pages = int(pages_input) if pages_input.strip() else None
+    except ValueError:
+        max_pages = None
+    
+    if max_pages is None:
+        print("将爬取全部评论，直到没有更多评论为止")
+    else:
+        print(f"将爬取最多 {max_pages} 页评论")
+    
+    # 关闭搜索浏览器
+    if searcher.driver:
+        searcher.close()
+    
+    # 创建爬虫实例
+    print("\n正在初始化爬虫...")
+    crawler = DouyinCommentCrawler(
+        video_url=video_url, 
+        max_pages=max_pages,
+        use_normal_mode=use_normal_mode,
+        login_first=login_first
+    )
+    
+    # 执行爬取
+    print("\n开始爬取评论，请稍候...\n")
+    start_time = time.time()
+    comments = crawler.start_crawler()
+    end_time = time.time()
+    
+    # 打印爬取结果
+    if comments:
+        print(f"\n成功爬取 {len(comments)} 条评论，耗时 {end_time - start_time:.2f} 秒")
+        print(f"评论已保存到文件: {crawler.get_output_file()}")
+        return crawler.get_output_file()
+    else:
+        print("\n爬取失败或未获取到评论")
+        return None
+
+
 def main():
     """主函数"""
     show_banner()
@@ -186,6 +292,15 @@ def main():
             if csv_file:
                 print("\n自动开始分析评论数据...")
                 analyze_comments(csv_file)
+                
+        elif choice == "4":
+            # 搜索并爬取评论
+            csv_file = search_and_crawl_comments()
+            
+            # 询问是否要分析
+            if csv_file:
+                if input("\n是否要分析刚爬取的评论数据? (y/n): ").lower() == 'y':
+                    analyze_comments(csv_file)
         
         elif choice == "0":
             print("\n感谢使用，再见!")
