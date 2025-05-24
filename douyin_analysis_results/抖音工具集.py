@@ -19,9 +19,9 @@ import time
 
 # 导入爬虫和分析器
 try:
-    from douyin_crawler import DouyinCommentCrawler
-    from douyin_analyzer import CommentAnalyzer
-    from douyin_search import DouyinVideoSearcher
+    from 抖音评论爬虫 import DouyinCommentCrawler
+    from 抖音数据分析器 import CommentAnalyzer
+    from 抖音视频搜索 import DouyinVideoSearcher
 except ImportError:
     print("正在导入模块...")
     # 尝试相对导入
@@ -31,9 +31,9 @@ except ImportError:
         if current_dir not in sys.path:
             sys.path.append(current_dir)
         
-        from douyin_crawler import DouyinCommentCrawler
-        from douyin_analyzer import CommentAnalyzer
-        from douyin_search import DouyinVideoSearcher
+        from 抖音评论爬虫 import DouyinCommentCrawler
+        from 抖音数据分析器 import CommentAnalyzer
+        from 抖音视频搜索 import DouyinVideoSearcher
     except ImportError:
         print("无法导入必要模块。请确保相关模块文件位于同一目录下。")
         sys.exit(1)

@@ -328,7 +328,7 @@ def main():
                 if crawl_choice.lower() == 'y':
                     try:
                         # 导入爬虫模块并爬取评论
-                        from douyin_crawler import DouyinCommentCrawler
+                        from 抖音评论爬虫 import DouyinCommentCrawler
                         
                         # 询问是否使用正常浏览器模式
                         use_normal_mode = input("是否使用正常浏览器模式 (可以登录账号) [Y/n]: ").lower() != 'n'
