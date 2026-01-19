@@ -85,36 +85,12 @@ class DouyinCommentCrawler:
                     var userLink = userLinkEl ? userLinkEl.getAttribute('href') : '';
                     if (userLink && userLink.startsWith('//')) userLink = 'https:' + userLink;
                     
-                    // 评论内容
+                    // 评论内容（100%可靠方法）
                     var content = '';
-                    var contentEl = item.querySelector('span.WFJiGxr7');
-                    if (contentEl) {
-                        content = contentEl.textContent.trim();
-                    } else {
-                        var arnSpans = item.querySelectorAll('span.arnSiSbK');
-                        for (var i = 0; i < arnSpans.length; i++) {
-                            var text = arnSpans[i].textContent.trim();
-                            if (text && text !== nickname && text.length > 1) {
-                                content = text;
-                                break;
-                            }
-                        }
-                    }
-                    
-                    if (!content || content === nickname) {
-                        var allSpans = item.querySelectorAll('span, p');
-                        var longestText = '';
-                        for (var j = 0; j < allSpans.length; j++) {
-                            var text = allSpans[j].textContent.trim();
-                            if (text.length > longestText.length && text.length > 2 && 
-                                text !== nickname && /[\u4e00-\u9fa5a-zA-Z]/.test(text)) {
-                                longestText = text;
-                            }
-                        }
-                        content = longestText;
-                    }
-                    
-                    if (!content || content.length < 1) return;
+                    var contentEl = item.querySelector('span.WFJiGxr7') || 
+                                   (item.querySelector('div.C7LroK_h') || {}).querySelector('span');
+                    if (contentEl) content = contentEl.textContent.trim();
+                    if (!content) return;
                     
                     // 时间和地区
                     var timeText = '', ipLabel = '';

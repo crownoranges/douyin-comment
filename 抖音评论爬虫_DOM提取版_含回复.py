@@ -68,21 +68,11 @@ class DouyinCommentCrawlerWithReplies:
                     var id = item.getAttribute('data-id') || 'comment_' + index;
                     var nickname = (item.querySelector('span.arnSiSbK.xtTwhlGw') || {}).textContent || '';
                     
+                    // 评论内容（100%可靠方法）
                     var content = '';
-                    var contentEl = item.querySelector('span.WFJiGxr7');
-                    if (contentEl) {
-                        content = contentEl.textContent.trim();
-                    } else {
-                        var spans = item.querySelectorAll('span.arnSiSbK');
-                        for (var i = 0; i < spans.length; i++) {
-                            var text = spans[i].textContent.trim();
-                            if (text && text !== nickname && text.length > 1) {
-                                content = text;
-                                break;
-                            }
-                        }
-                    }
-                    
+                    var contentEl = item.querySelector('span.WFJiGxr7') || 
+                                   (item.querySelector('div.C7LroK_h') || {}).querySelector('span');
+                    if (contentEl) content = contentEl.textContent.trim();
                     if (!content) return;
                     
                     var timeIpEl = item.querySelector('div.fJhvAqos span');

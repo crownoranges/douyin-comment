@@ -1,0 +1,253 @@
+#!/usr/bin/env python
+# -*- coding: utf-8 -*-
+import sys
+import pandas as pd
+import jieba
+import jieba.analyse
+from wordcloud import WordCloud
+import matplotlib.pyplot as plt
+from collections import Counter
+from datetime import datetime
+import os
+import re
+from pyecharts import options as opts
+from pyecharts.charts import Bar, Pie, Line, Map, Page
+from pyecharts.commons.utils import JsCode
+import warnings
+from sklearn.feature_extraction.text import TfidfVectorizer
+import numpy as np
+
+if sys.platform == 'win32':
+    import io
+    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
+
+warnings.filterwarnings('ignore')
+plt.rcParams['font.sans-serif'] = ['SimHei']
+plt.rcParams['axes.unicode_minus'] = False
+
+
+class DouyinAnalysisSystem:
+    def __init__(self, csv_file):
+        self.csv_file = csv_file
+        self.output_dir = 'analysis_results'
+        self.video_title = re.sub(r'_\d{8}_\d{6}(_with_replies)?\.csv$', '', os.path.basename(csv_file))
+        os.makedirs(self.output_dir, exist_ok=True)
+        self.df = pd.read_csv(csv_file, encoding='utf-8-sig')
+        print(f"加载: {len(self.df)}条评论 - {self.video_title}")
+        
+        if '点赞数' in self.df.columns:
+            self.df['点赞数'] = pd.to_numeric(self.df['点赞数'], errors='coerce').fillna(0)
+        if '回复数' in self.df.columns:
+            self.df['回复数'] = pd.to_numeric(self.df['回复数'], errors='coerce').fillna(0)
+        if '时间' in self.df.columns:
+            self.df['时间_parsed'] = pd.to_datetime(self.df['时间'], errors='coerce')
+    
+    def basic_statistics(self):
+        stats = {"总评论数": len(self.df), "评论用户数": self.df['昵称'].nunique() if '昵称' in self.df.columns else 0}
+        content_col = '评论内容' if '评论内容' in self.df.columns else '评论'
+        if content_col in self.df.columns:
+            stats["平均评论长度"] = round(self.df[content_col].str.len().mean(), 1)
+        if '点赞数' in self.df.columns:
+            stats["总点赞数"] = int(self.df['点赞数'].sum())
+        return stats
+    
+    def sentiment_analysis(self):
+        content_col = '评论内容' if '评论内容' in self.df.columns else '评论'
+        if content_col not in self.df.columns:
+            return None
+        
+        positive = {'好','棒','赞','喜欢','优秀','精彩','美','爱','感动','开心','快乐','幸福','满意','支持','厉害','牛','强','哈哈','笑','可爱','完美','太好了','真棒','给力','666','yyds','绝了','顶','不错'}
+        negative = {'差','坏','烂','垃圾','讨厌','恶心','难看','丑','失望','无聊','糟糕','反感','愤怒','生气','恨','骂','黑','喷','无语','拉黑','尬','崩溃','呕','吐了','不行','太差','辣鸡'}
+        
+        sentiments = []
+        for text in self.df[content_col].dropna():
+            words = set(jieba.cut(str(text)))
+            pos, neg = len(words & positive), len(words & negative)
+            sentiments.append('正面' if pos > neg else ('负面' if neg > pos else '中性'))
+        
+        return Counter(sentiments)
+    
+    def user_portrait_analysis(self):
+        portrait = {}
+        
+        if '时间_parsed' in self.df.columns:
+            valid = self.df[self.df['时间_parsed'].notna()]
+            if len(valid) > 0:
+                periods = {'深夜(0-5)': 0, '早晨(6-9)': 0, '工作(10-17)': 0, '晚间(18-23)': 0}
+                for h in valid['时间_parsed'].dt.hour:
+                    key = '深夜(0-5)' if 0<=h<6 else '早晨(6-9)' if 6<=h<10 else '工作(10-17)' if 10<=h<18 else '晚间(18-23)'
+                    periods[key] += 1
+                portrait['time_periods'] = periods
+        
+        content_col = '评论内容' if '评论内容' in self.df.columns else '评论'
+        if content_col in self.df.columns:
+            keywords = {'网络流行语':{'哈哈','笑死','绝了','666','yyds','awsl','破防','emo'}, '学生用语':{'作业','考试','老师','同学','学校','上课'}, '职场用语':{'工作','加班','老板','同事','公司','会议'}, '情感表达':{'爱','喜欢','感动','难过','开心','幸福','想念'}, '批判表达':{'但是','不过','可是','然而','竟然','居然'}}
+            counts = {s:sum(1 for t in self.df[content_col].dropna() if set(jieba.cut(str(t))) & kw) for s,kw in keywords.items()}
+            portrait['style_counts'] = counts
+        
+        if '昵称' in self.df.columns:
+            uc = self.df['昵称'].value_counts()
+            portrait['freq_dist'] = {'高频(5+)':len(uc[uc>=5]), '中频(3-4)':len(uc[(uc>=3)&(uc<5)]), '低频(1-2)':len(uc[uc<3])}
+        
+        if '地区' in self.df.columns:
+            loc = self.df[self.df['地区'].notna() & (self.df['地区']!='')]
+            if len(loc) > 0:
+                portrait['location_counts'] = loc['地区'].value_counts()
+        
+        return portrait
+    
+    def user_influence_analysis(self, top_n=20):
+        if '昵称' not in self.df.columns or '点赞数' not in self.df.columns:
+            return None
+        stats = self.df.groupby('昵称').agg({'昵称':'count', '点赞数':'sum'}).rename(columns={'昵称':'评论数'})
+        stats['影响力'] = stats['评论数'] * 0.3 + stats['点赞数'] * 0.7
+        return stats
+    
+    def keyword_analysis(self, top_n=30):
+        content_col = '评论内容' if '评论内容' in self.df.columns else '评论'
+        if content_col not in self.df.columns:
+            return None
+        
+        stopwords = {'的','了','是','在','我','有','和','就','不','人','都','一','上','也','很','到','说','要','去','你','会','着','没有','看','好','这','啊','哈','吗','呢','吧','哦','嗯','额','呃'}
+        try:
+            texts = [' '.join(jieba.cut(str(t))) for t in self.df[content_col].dropna()]
+            vec = TfidfVectorizer(max_features=top_n, stop_words=list(stopwords))
+            mat = vec.fit_transform(texts)
+            names = vec.get_feature_names_out()
+            scores = mat.sum(axis=0).A1
+            return sorted([(names[i], scores[i]) for i in range(len(scores))], key=lambda x:x[1], reverse=True)
+        except:
+            return jieba.analyse.extract_tags(' '.join(self.df[content_col].dropna().astype(str)), topK=top_n, withWeight=True)
+    
+    def time_trend_analysis(self):
+        if '时间_parsed' not in self.df.columns:
+            return None
+        valid = self.df[self.df['时间_parsed'].notna()]
+        if len(valid) == 0:
+            return None
+        valid['小时'] = valid['时间_parsed'].dt.hour
+        valid['日期'] = valid['时间_parsed'].dt.date
+        return {'hour_counts': valid['小时'].value_counts().sort_index(), 'date_counts': valid['日期'].value_counts().sort_index()}
+    
+    def location_analysis(self, top_n=15):
+        if '地区' not in self.df.columns:
+            return None
+        loc = self.df[self.df['地区'].notna() & (self.df['地区']!='')]
+        return loc['地区'].value_counts().head(top_n) if len(loc) > 0 else None
+    
+    def generate_visual_report(self, stats_data):
+        page = Page(layout=Page.SimplePageLayout, page_title=f"{self.video_title} - 数据分析报告")
+        
+        if stats_data.get('sentiment'):
+            page.add(Pie().add("", list(stats_data['sentiment'].items()), radius=["30%","75%"]).set_colors(["#91cc75","#fac858","#ee6666"]).set_global_opts(title_opts=opts.TitleOpts(title="情感分析"), legend_opts=opts.LegendOpts(orient="vertical",pos_left="5%",pos_top="15%")).set_series_opts(label_opts=opts.LabelOpts(formatter="{b}: {c} ({d}%)")))
+        
+        if 'portrait' in stats_data and 'time_periods' in stats_data['portrait']:
+            page.add(Pie().add("", list(stats_data['portrait']['time_periods'].items()), radius=["30%","75%"]).set_global_opts(title_opts=opts.TitleOpts(title="用户活跃时段"), legend_opts=opts.LegendOpts(orient="vertical",pos_left="5%",pos_top="15%")).set_series_opts(label_opts=opts.LabelOpts(formatter="{b}: {c} ({d}%)")))
+        
+        if 'portrait' in stats_data and 'style_counts' in stats_data['portrait']:
+            sd = stats_data['portrait']['style_counts']
+            if sum(sd.values()) > 0:
+                page.add(Pie().add("", list(sd.items()), radius=["30%","75%"], rosetype="radius").set_global_opts(title_opts=opts.TitleOpts(title="用户语言风格"), legend_opts=opts.LegendOpts(orient="vertical",pos_left="5%",pos_top="15%")).set_series_opts(label_opts=opts.LabelOpts(formatter="{b}: {c} ({d}%)")))
+        
+        if 'portrait' in stats_data and 'freq_dist' in stats_data['portrait']:
+            page.add(Pie().add("", list(stats_data['portrait']['freq_dist'].items()), radius=["30%","75%"]).set_colors(["#5475f5","#91cc75","#fac858"]).set_global_opts(title_opts=opts.TitleOpts(title="用户互动频率"), legend_opts=opts.LegendOpts(orient="vertical",pos_left="5%",pos_top="15%")).set_series_opts(label_opts=opts.LabelOpts(formatter="{b}: {c} ({d}%)")))
+        
+        if 'portrait' in stats_data and 'location_counts' in stats_data['portrait']:
+            lc = stats_data['portrait']['location_counts']
+            mapping = {'中国香港':'香港', '中国澳门':'澳门', '中国台湾':'台湾'}
+            full = {'北京':'北京市','天津':'天津市','上海':'上海市','重庆':'重庆市','河北':'河北省','山西':'山西省','辽宁':'辽宁省','吉林':'吉林省','黑龙江':'黑龙江省','江苏':'江苏省','浙江':'浙江省','安徽':'安徽省','福建':'福建省','江西':'江西省','山东':'山东省','河南':'河南省','湖北':'湖北省','湖南':'湖南省','广东':'广东省','海南':'海南省','四川':'四川省','贵州':'贵州省','云南':'云南省','陕西':'陕西省','甘肃':'甘肃省','青海':'青海省','台湾':'台湾省','内蒙古':'内蒙古自治区','广西':'广西壮族自治区','西藏':'西藏自治区','宁夏':'宁夏回族自治区','新疆':'新疆维吾尔自治区','香港':'香港特别行政区','澳门':'澳门特别行政区'}
+            china = {'北京','天津','河北','山西','内蒙古','辽宁','吉林','黑龙江','上海','江苏','浙江','安徽','福建','江西','山东','河南','湖北','湖南','广东','广西','海南','重庆','四川','贵州','云南','西藏','陕西','甘肃','青海','宁夏','新疆','台湾','香港','澳门','中国香港','中国澳门','中国台湾'}
+            md = [(full.get(mapping.get(l,l), mapping.get(l,l)), int(c)) for l,c in lc.items() if mapping.get(l,l) in china]
+            
+            if md:
+                mx, mn = max(c for _,c in md), min(c for _,c in md)
+                colors = ["#FFFFCC","#FFEDA0","#FED976","#FEB24C","#FD8D3C","#FC4E2A","#E31A1C","#BD0026","#800026"]
+                mc = Map().add(series_name="评论数量", data_pair=md, maptype="china", is_map_symbol_show=False).set_global_opts(title_opts=opts.TitleOpts(title="用户地理分布热力图", subtitle=f"覆盖{len(md)}个省份/地区，颜色越深（红色）评论越多，灰色为无评论", title_textstyle_opts=opts.TextStyleOpts(font_size=18,color="#333"), subtitle_textstyle_opts=opts.TextStyleOpts(font_size=12,color="#666")), visualmap_opts=opts.VisualMapOpts(is_show=True, type_="continuous", min_=mn, max_=mx, range_color=colors, pos_left="left", pos_bottom="10%", orient="horizontal", textstyle_opts=opts.TextStyleOpts(color="#000",font_size=10), item_width=15, item_height=10), tooltip_opts=opts.TooltipOpts(trigger="item", formatter=JsCode("function(params) { if (params.value !== null && params.value !== undefined && !isNaN(params.value)) { return params.name + '<br/>评论数: ' + params.value + '条'; } else { return params.name + '<br/>无评论'; } }"), background_color="rgba(50,50,50,0.8)", border_color="#777", border_width=1, textstyle_opts=opts.TextStyleOpts(color="#fff"))).set_series_opts(label_opts=opts.LabelOpts(is_show=True, color="#000", font_size=10, font_weight="bold"), itemstyle_opts=opts.ItemStyleOpts(border_color="#fff", border_width=1, area_color="#ccc"))
+                page.add(mc)
+        
+        if 'influence' in stats_data:
+            tu = stats_data['influence'].nlargest(20, '影响力')
+            page.add(Bar().add_xaxis(list(tu.index[:20])).add_yaxis("影响力", [round(x,1) for x in tu['影响力'][:20]]).set_global_opts(title_opts=opts.TitleOpts(title="用户影响力排行"), xaxis_opts=opts.AxisOpts(axislabel_opts=opts.LabelOpts(rotate=45)), datazoom_opts=opts.DataZoomOpts(type_="slider",range_start=20,range_end=80)).set_series_opts(label_opts=opts.LabelOpts(is_show=True)))
+        
+        if 'keywords' in stats_data:
+            kw = stats_data['keywords'][:20]
+            page.add(Bar().add_xaxis([w for w,s in kw]).add_yaxis("权重", [round(s,4) for w,s in kw]).set_global_opts(title_opts=opts.TitleOpts(title="关键词重要性"), xaxis_opts=opts.AxisOpts(axislabel_opts=opts.LabelOpts(rotate=45))).set_series_opts(label_opts=opts.LabelOpts(is_show=True)))
+        
+        if 'time_trend' in stats_data and 'hour_counts' in stats_data['time_trend']:
+            hc = stats_data['time_trend']['hour_counts']
+            page.add(Line().add_xaxis([f"{h:02d}:00" for h in range(24)]).add_yaxis("评论数", [hc.get(h,0) for h in range(24)], is_smooth=True).set_global_opts(title_opts=opts.TitleOpts(title="24小时评论趋势"), xaxis_opts=opts.AxisOpts(name="时间"), yaxis_opts=opts.AxisOpts(name="评论数")).set_series_opts(label_opts=opts.LabelOpts(is_show=False)))
+        
+        if 'location' in stats_data:
+            lc = stats_data['location']
+            page.add(Bar().add_xaxis(list(lc.index)).add_yaxis("评论数", [int(x) for x in lc.values]).set_global_opts(title_opts=opts.TitleOpts(title="地区分布"), xaxis_opts=opts.AxisOpts(axislabel_opts=opts.LabelOpts(rotate=-45))).set_series_opts(label_opts=opts.LabelOpts(is_show=True)))
+        
+        content_col = '评论内容' if '评论内容' in self.df.columns else '评论'
+        if content_col in self.df.columns:
+            try:
+                txt = ' '.join(w for w in jieba.cut(' '.join(self.df[content_col].dropna().astype(str))) if len(w)>1 and w not in {'的','了','是','在','我','有','和','就','不','人','都','一'})
+                wc = WordCloud(font_path='C:/Windows/Fonts/simhei.ttf', width=1600, height=800, background_color='white', max_words=200).generate(txt)
+                plt.figure(figsize=(20,10))
+                plt.imshow(wc, interpolation='bilinear')
+                plt.axis('off')
+                plt.savefig(os.path.join(self.output_dir, f"{self.video_title}_词云图.png"), dpi=300, bbox_inches='tight')
+                plt.close()
+            except:
+                pass
+        
+        out = os.path.join(self.output_dir, f"{self.video_title}_完整分析报告.html")
+        page.render(out)
+        
+        try:
+            with open(out, 'r', encoding='utf-8') as f:
+                html = f.read()
+            html = html.replace('"inRange": {}', '"inRange": {"color": ["#FFFFCC","#FFEDA0","#FED976","#FEB24C","#FD8D3C","#FC4E2A","#E31A1C","#BD0026","#800026"]}')
+            with open(out, 'w', encoding='utf-8') as f:
+                f.write(html)
+        except:
+            pass
+        
+        print(f"报告: {out}")
+        return out
+    
+    def run_full_analysis(self):
+        print(f"分析: {self.video_title}")
+        sd = {}
+        sd['basic'] = self.basic_statistics()
+        s = self.sentiment_analysis()
+        if s: sd['sentiment'] = s
+        p = self.user_portrait_analysis()
+        if p: sd['portrait'] = p
+        i = self.user_influence_analysis(20)
+        if i is not None: sd['influence'] = i
+        k = self.keyword_analysis(30)
+        if k: sd['keywords'] = k
+        t = self.time_trend_analysis()
+        if t: sd['time_trend'] = t
+        l = self.location_analysis(15)
+        if l is not None: sd['location'] = l
+        self.generate_visual_report(sd)
+        print("完成")
+
+
+def main():
+    csv_dir = 'crawled_comments'
+    files = sorted([f for f in os.listdir(csv_dir) if f.endswith('.csv')], key=lambda x: os.path.getmtime(os.path.join(csv_dir, x)), reverse=True)
+    if not files:
+        print("无CSV文件")
+        return
+    
+    print(f"文件列表:")
+    for i, f in enumerate(files, 1):
+        print(f"{i}. {f}")
+    
+    choice = input(f"选择(1-{len(files)}), 回车=最新: ").strip()
+    csv = os.path.join(csv_dir, files[0] if choice=='' else files[int(choice)-1])
+    
+    try:
+        DouyinAnalysisSystem(csv).run_full_analysis()
+    except Exception as e:
+        print(f"错误: {e}")
+
+
+if __name__ == '__main__':
+    main()
